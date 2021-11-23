@@ -291,8 +291,7 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->add(33, 52, Util::formatCnab('9', Util::onlyNumbers($this->getCodigoCliente()), 20));
         $this->add(53, 57, Util::formatCnab('9', $this->getAgencia(), 5));
         $this->add(58, 58, '');
-        $this->add(59, 63, '000EE');
-        $this->add(64, 70, Util::formatCnab('9', $this->getConta(), 7));
+        $this->add(59, 70, Util::formatCnab('9', $this->getConta(), 7));//v103
         $this->add(71, 71, CalculoDV::banrisulContaCorrente($this->getConta()));
         $this->add(72, 72, '');
         $this->add(73, 102, Util::formatCnab('X', $this->getBeneficiario()->getNome(), 30));
@@ -302,17 +301,11 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->add(144, 151, $this->getDataRemessa('dmY'));
         $this->add(152, 157, date('His'));
         $this->add(158, 163, '000000');
-        $this->add(164, 166, '040');
+        $this->add(164, 166, '103');//versao exigida 103 - 10.3 de 10/03/2021
         $this->add(167, 171, '00000');
-        $this->add(172, 179, '');
-        $this->add(180, 181, 'BE');
-        $this->add(182, 191, '');
-        $this->add(192, 211, '');
-        $this->add(212, 222, '');
-        $this->add(223, 225, '');
-        $this->add(226, 228, '000');
-        $this->add(229, 230, '');
-        $this->add(231, 240, '');
+        $this->add(172, 191, '');//v103 uso do banco
+        $this->add(192, 211, '');//v103 uso da empresa
+        $this->add(212, 240, '');//v103 uso febraban
 
         return $this;
     }
