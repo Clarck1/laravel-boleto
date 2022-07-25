@@ -113,6 +113,7 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->boletos[] = $boleto;
         $this->segmentoP($boleto);
         $this->segmentoQ($boleto);
+        $this->segmentoR($boleto);
         if($boleto->getSacadorAvalista()) {
             $this->segmentoY01($boleto);
         }
@@ -152,13 +153,15 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->add(24, 35, Util::formatCnab('9', $this->getConta(), 12));
         $this->add(36, 36, CalculoDV::banrisulContaCorrente($this->getConta()));
         $this->add(37, 37, '');
-        $this->add(38, 57, Util::formatCnab('9', $boleto->getNossoNumero(), 20));
+        $this->add(38, 47, Util::formatCnab('9', $boleto->getNossoNumero(), 20));
+        $this->add(48, 57, '');
         $this->add(58, 58, $this->getCarteira());
         $this->add(59, 59, '1'); //'1' = Com Cadastramento
-        $this->add(60, 60, '');
+        $this->add(60, 60, '1'); //1 para tradicional ou 2 para escritural
         $this->add(61, 61, '2'); //2 – Cliente emite o bloqueto
-        $this->add(62, 62, '');
-        $this->add(63, 77, Util::formatCnab('9', $boleto->getNumeroDocumento(), 15));
+        $this->add(62, 62, '2'); //2 Cliente distribui
+        $this->add(63, 75, Util::formatCnab('9', $boleto->getNumeroDocumento(), 13));
+        $this->add(76, 77, '');
         $this->add(78, 85, $boleto->getDataVencimento()->format('dmY'));
         $this->add(86, 100, Util::formatCnab('9', $boleto->getValor(), 15, 2));
         $this->add(101, 105, '00000');
@@ -166,10 +169,15 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->add(107, 108, Util::formatCnab('9', $boleto->getEspecieDocCodigo(), 2));
         $this->add(109, 109, Util::formatCnab('9', $boleto->getAceite(), 1));
         $this->add(110, 117, $boleto->getDataDocumento()->format('dmY'));
-        $this->add(118, 118, $boleto->getJuros() ? '1' : '3'); //'1' = Valor por Dia, '3' = Isento
-        $this->add(119, 126, $boleto->getDataVencimento()->format('dmY'));
-        $this->add(127, 141, Util::formatCnab('9', $boleto->getMoraDia(), 15, 2)); //Valor da mora/dia ou Taxa mensal
-        $this->add(142, 142, '1'); // '1' = Valor Fixo Até a Data Informada
+        $this->add(118, 118, $boleto->getJuros() ? '2' : '3'); //'1' para valor ao dia, '2' para taxa mensal, '3' = Isento
+        if($boleto->getJuros() !== false){
+            $this->add(119, 126, date('dmY', strtotime("+".$boleto->getJurosApos()." days",strtotime($boleto->getDataVencimento()))));
+        }else{
+            $this->add(119, 126, '00000000');
+        }
+        $this->add(127, 140, Util::formatCnab('9', $boleto->getMoraDia(), 14, 2)); //Valor da mora/dia ou Taxa mensal
+        $this->add(141, 141, '0'); // '1' = Valor Fixo Até a Data Informada
+        $this->add(142, 142, ''); //deve conter espaco
         $this->add(143, 150, $boleto->getDesconto() > 0 ? $boleto->getDataDesconto()->format('dmY') : '00000000');
         $this->add(151, 165, Util::formatCnab('9', $boleto->getDesconto(), 15, 2));
         $this->add(166, 180, Util::formatCnab('9', 0, 15, 2));
@@ -180,11 +188,11 @@ class Banrisul extends AbstractRemessa implements RemessaContract
             $this->add(221, 221, self::PROTESTO_DIAS_CORRIDOS);
         }
         $this->add(222, 223, Util::formatCnab('9', $boleto->getDiasProtesto(), 2));
-        $this->add(224, 224, '2'); // 2 – Reservado
+        $this->add(224, 224, ''); // 2 – Reservado
         $this->add(225, 227, '000');
         $this->add(228, 229, Util::formatCnab('9', $boleto->getMoeda(), 2));
-        $this->add(230, 239, '0000000000');
-        $this->add(240, 240, '');
+        $this->add(230, 239, '0000805076'); //0000805076 Esse código significa carteira de cobrança simples com registro. Para outras carteiras, favor consultar o leiaute
+        $this->add(240, 240, '1'); // 1 esse código significa "não autoriza pagamento parcial ". Caso prefira utilizar código "2" , que significa  "autoriza pagamentos parciais" , é necessário incluir segmento do tipo Y-53 nas remessas.
 
         return $this;
     }
@@ -241,6 +249,55 @@ class Banrisul extends AbstractRemessa implements RemessaContract
      * @return $this
      * @throws \Exception
      */
+    protected function segmentoR(BoletoContract $boleto)
+    {
+        $this->iniciaDetalhe();
+        $this->add(1, 3, Util::onlyNumbers($this->getCodigoBanco()));
+        $this->add(4, 7, '0001');
+        $this->add(8, 8, '3');
+        $this->add(9, 13, Util::formatCnab('9', $this->iRegistrosLote, 5));
+        $this->add(14, 14, 'R');
+        $this->add(15, 15, '');
+        $this->add(16, 17, self::OCORRENCIA_REMESSA);
+        if ($boleto->getStatus() == $boleto::STATUS_BAIXA) {
+            $this->add(16, 17, self::OCORRENCIA_PEDIDO_BAIXA);
+        }
+        if ($boleto->getStatus() == $boleto::STATUS_ALTERACAO) {
+            $this->add(16, 17, self::OCORRENCIA_ALT_OUTROS_DADOS);
+        }
+        if ($boleto->getStatus() == $boleto::STATUS_ALTERACAO_DATA) {
+            $this->add(16, 17, self::OCORRENCIA_ALT_VENCIMENTO);
+        }
+        if ($boleto->getStatus() == $boleto::STATUS_CUSTOM) {
+            $this->add(16, 17, sprintf('%2.02s', $boleto->getComando()));
+        }
+        $this->add(18, 18, '0');
+        $this->add(19, 26, '00000000');
+        $this->add(27, 41, '000000000000000');
+        $this->add(42, 42, '0');
+        $this->add(43, 50, '00000000');
+        $this->add(51, 65, '000000000000000');
+        $this->add(66, 66, '2'); //14.3R Código da Multa - utilizar código 1 para valor fixo ou código 2 para percentual 
+        $this->add(67, 74, date('dmY', strtotime("+".$boleto->getJurosApos()." days",strtotime($boleto->getDataVencimento()))));
+        $this->add(75, 88, Util::formatCnab('9', $boleto->getMulta(), 14, 1));
+        $this->add(89, 89, '0');
+        $this->add(90, 99, '');
+        $this->add(100, 139, Util::formatCnab('9', 0, 40)); //só serão utilizadas se o banco emitir o boleto e devem ficar zerados.
+        $this->add(140, 179, Util::formatCnab('9', 0, 40)); //só serão utilizadas se o banco emitir o boleto e devem ficar zerados.
+        $this->add(180, 199, '');
+        $this->add(200, 207, '00000000');
+        $this->add(208, 231, '');
+        $this->add(233, 240, '');
+        
+        return $this;
+    }
+
+    /**
+     * @param BoletoContract $boleto
+     *
+     * @return $this
+     * @throws \Exception
+     */
     public function segmentoY01(BoletoContract $boleto)
     {
         $this->iniciaDetalhe();
@@ -256,6 +313,9 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         }
         if ($boleto->getStatus() == $boleto::STATUS_ALTERACAO) {
             $this->add(16, 17, self::OCORRENCIA_ALT_OUTROS_DADOS);
+        }
+        if ($boleto->getStatus() == $boleto::STATUS_ALTERACAO_DATA) {
+            $this->add(16, 17, self::OCORRENCIA_ALT_VENCIMENTO);
         }
         $this->add(18, 19, '01');
         $this->add(20, 20, strlen(Util::onlyNumbers($boleto->getSacadorAvalista()->getDocumento())) == 14 ? 2 : 1);
@@ -288,11 +348,10 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->add(9, 17, '');
         $this->add(18, 18, strlen(Util::onlyNumbers($this->getBeneficiario()->getDocumento())) == 14 ? 2 : 1);
         $this->add(19, 32, Util::formatCnab('9', Util::onlyNumbers($this->getBeneficiario()->getDocumento()), 14));
-        $this->add(33, 52, Util::formatCnab('9', Util::onlyNumbers($this->getCodigoCliente()), 20));
+        $this->add(33, 52, Util::formatCnab('A', Util::onlyNumbers($this->getCodigoCliente()), 20));
         $this->add(53, 57, Util::formatCnab('9', $this->getAgencia(), 5));
         $this->add(58, 58, '');
-        $this->add(59, 63, '000EE');
-        $this->add(64, 70, Util::formatCnab('9', $this->getConta(), 7));
+        $this->add(59, 70, Util::formatCnab('9', $this->getConta(), 12));//v103
         $this->add(71, 71, CalculoDV::banrisulContaCorrente($this->getConta()));
         $this->add(72, 72, '');
         $this->add(73, 102, Util::formatCnab('X', $this->getBeneficiario()->getNome(), 30));
@@ -301,18 +360,12 @@ class Banrisul extends AbstractRemessa implements RemessaContract
         $this->add(143, 143, 1);
         $this->add(144, 151, $this->getDataRemessa('dmY'));
         $this->add(152, 157, date('His'));
-        $this->add(158, 163, '000000');
-        $this->add(164, 166, '040');
+        $this->add(158, 163, '000001');
+        $this->add(164, 166, '103');//versao exigida 103 10.3 de 10/03/2021
         $this->add(167, 171, '00000');
-        $this->add(172, 179, '');
-        $this->add(180, 181, 'BE');
-        $this->add(182, 191, '');
-        $this->add(192, 211, '');
-        $this->add(212, 222, '');
-        $this->add(223, 225, '');
-        $this->add(226, 228, '000');
-        $this->add(229, 230, '');
-        $this->add(231, 240, '');
+        $this->add(172, 191, '');//v103 uso do banco
+        $this->add(192, 211, '');//v103 uso da empresa
+        $this->add(212, 240, '');//v103 uso febraban
 
         return $this;
     }
